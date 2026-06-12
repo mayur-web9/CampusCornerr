@@ -1,18 +1,26 @@
 import { useEffect, useState, useRef } from 'react';
-import { Calendar, Clock, QrCode, Megaphone, CheckCircle, AlertCircle, XCircle, UtensilsCrossed } from 'lucide-react';
+import { Clock, QrCode, Megaphone, UtensilsCrossed } from 'lucide-react';
 import QRCode from 'qrcode';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Subscription, Menu, Announcement } from '../../lib/types';
 import { toast } from 'sonner';
 
-function QRModal({ title, dataUrl, onClose }: { title: string; dataUrl: string; onClose: () => void }) {
+function QRModal({ title, dataUrl, studentCode, onClose }: { title: string; dataUrl: string; studentCode?: string; onClose: () => void }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl p-6 max-w-xs w-full text-center shadow-2xl" onClick={e => e.stopPropagation()}>
         <h3 className="font-bold text-gray-900 text-lg mb-1">{title} QR Pass</h3>
         <p className="text-sm text-gray-500 mb-4">Show this to the mess staff</p>
         <img src={dataUrl} alt="QR Code" className="w-48 h-48 mx-auto rounded-xl border border-gray-100" />
+
+        {studentCode && (
+          <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-100">
+            <p className="text-xs text-gray-500 mb-1">Manual Fallback Code</p>
+            <p className="font-mono font-bold text-lg text-gray-900 tracking-wider">{studentCode}</p>
+          </div>
+        )}
+
         <button onClick={onClose} className="mt-4 btn-primary w-full py-2.5">Close</button>
       </div>
     </div>
@@ -25,8 +33,8 @@ export default function StudentDashboard() {
   const [menu, setMenu] = useState<Menu | null>(null);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [qrModal, setQrModal] = useState<{ type: string; dataUrl: string } | null>(null);
-  const [qrUrls, setQrUrls] = useState<Record<string, string>>({});
+  const [qrModal, setQrModal] = useState<{ type: string; dataUrl: string; fallbackCode: string } | null>(null);
+  const [generatingQr, setGeneratingQr] = useState<string | null>(null);
   const notifiedRef = useRef(false);
 
   useEffect(() => {
@@ -47,17 +55,6 @@ export default function StudentDashboard() {
     setSubscription(sub);
     setMenu(menuRes.data);
     setAnnouncements(annRes.data ?? []);
-
-    // Generate QR codes
-    if (sub && (profile as any)?.id) {
-      const types = ['breakfast', 'lunch', 'dinner'];
-      const urls: Record<string, string> = {};
-      for (const type of types) {
-        const payload = JSON.stringify({ studentId: (profile as any).id, mealType: type, timestamp: Date.now() });
-        urls[type] = await QRCode.toDataURL(payload, { width: 256, margin: 2, color: { dark: '#111', light: '#fff' } });
-      }
-      setQrUrls(urls);
-    }
 
     // Subscription notifications
     if (sub && !notifiedRef.current) {
@@ -93,6 +90,45 @@ export default function StudentDashboard() {
     return now >= start && now <= end && subscription.status === 'active';
   }
 
+  async function handleShowQr(mealLabel: string, mealKey: string) {
+    if (!profile) return;
+    setGeneratingQr(mealKey);
+
+    const studentId = (profile as any).id;
+    const today = new Date().toISOString().split('T')[0];
+    const cacheKey = `hpro_qr_${studentId}_${mealKey}_${today}`;
+
+    try {
+      // Check if a token already exists for this meal today
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) {
+        const { fallbackCode, dataUrl } = JSON.parse(cached);
+        setQrModal({ type: mealLabel, dataUrl, fallbackCode });
+        return;
+      }
+
+      // First time today for this meal — generate a fresh unique code
+      const random12 = Math.floor(100000000000 + Math.random() * 900000000000).toString();
+
+      // Save to DB with meal type prefix so scanner can enforce meal-type restrictions
+      // Format: "mealType:code" e.g. "breakfast:454302190366"
+      await supabase.from('students').update({ qr_code: `${mealKey}:${random12}` }).eq('id', studentId);
+
+      // Generate QR image
+      const payload = JSON.stringify({ studentId, mealType: mealKey, date: today });
+      const dataUrl = await QRCode.toDataURL(payload, { width: 256, margin: 2, color: { dark: '#111', light: '#fff' } });
+
+      // Persist in localStorage so subsequent taps reuse the same code
+      localStorage.setItem(cacheKey, JSON.stringify({ fallbackCode: random12, dataUrl }));
+
+      setQrModal({ type: mealLabel, dataUrl, fallbackCode: random12 });
+    } catch (err) {
+      toast.error('Failed to generate QR code');
+    } finally {
+      setGeneratingQr(null);
+    }
+  }
+
   const daysLeft = getDaysRemaining();
   const active = isActive();
 
@@ -105,12 +141,16 @@ export default function StudentDashboard() {
       </div>
     );
   }
-
   const mealTypes = [
-    { key: 'breakfast', label: 'Breakfast', icon: '☀️', time: '08:00 AM – 10:00 AM', menu: menu?.breakfast },
-    { key: 'lunch', label: 'Lunch', icon: '🌤️', time: '01:00 PM – 03:00 PM', menu: menu?.lunch },
-    { key: 'dinner', label: 'Dinner', icon: '🌙', time: '08:00 PM – 10:00 PM', menu: menu?.dinner },
+    { key: 'breakfast', label: 'Breakfast', icon: '☀️', time: '07:30 AM – 10:30 AM', startHour: 1, endHour: 24, menu: menu?.breakfast },
+    { key: 'lunch', label: 'Lunch', icon: '🌤️', time: '11:30 PM – 02:30 PM', startHour: 1, endHour: 24, menu: menu?.lunch },
+    { key: 'dinner', label: 'Dinner', icon: '🌙', time: '07:30 PM – 09:30 PM', startHour: 1, endHour: 24, menu: menu?.dinner },
   ];
+
+  function isMealActive(startHour: number, endHour: number) {
+    const hour = new Date().getHours();
+    return hour >= startHour && hour < endHour;
+  }
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -183,43 +223,58 @@ export default function StudentDashboard() {
         )}
       </div>
 
-      {/* Meal QR Passes */}
-      {active && Object.keys(qrUrls).length > 0 && (
-        <div className="card">
-          <h2 className="font-bold text-gray-900 mb-1">Meal QR Passes</h2>
-          <p className="text-sm text-gray-500 mb-4">Show QR code to mess staff to get your meal</p>
-          <div className="grid grid-cols-3 gap-3">
-            {mealTypes.map(meal => (
-              <button
-                key={meal.key}
-                onClick={() => setQrModal({ type: meal.label, dataUrl: qrUrls[meal.key] })}
-                className="flex flex-col items-center gap-2 p-4 bg-red-50 hover:bg-red-100 rounded-xl transition-colors group"
-              >
-                <div className="text-2xl">{meal.icon}</div>
-                <span className="text-xs font-semibold text-red-700">{meal.label}</span>
-                <QrCode className="w-4 h-4 text-red-600 opacity-70 group-hover:opacity-100" />
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-gray-400 mt-3 text-center">Tap to view full QR code</p>
-        </div>
-      )}
-
-      {/* Meal Times */}
+      {/* Meal Schedule — unified times + QR */}
       <div className="card">
-        <h2 className="font-bold text-gray-900 mb-4">Meal Times</h2>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-9 h-9 bg-red-50 rounded-xl flex items-center justify-center">
+            <Clock className="w-5 h-5 text-red-600" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-900">Meal Schedule</h2>
+            <p className="text-xs text-gray-500">QR opens only during meal time</p>
+          </div>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {mealTypes.map(meal => (
-            <div key={meal.key} className="p-4 bg-gray-50 rounded-xl text-center">
-              <div className="text-2xl mb-2">{meal.icon}</div>
-              <p className="font-semibold text-gray-900 text-sm">{meal.label}</p>
-              <p className="text-xs text-gray-500 mt-1 flex items-center justify-center gap-1">
-                <Clock className="w-3 h-3" />
-                {meal.time}
-              </p>
-              {meal.menu && <p className="text-xs text-red-600 mt-2 font-medium truncate">{meal.menu}</p>}
-            </div>
-          ))}
+          {mealTypes.map(meal => {
+            const open = isMealActive(meal.startHour, meal.endHour);
+            return (
+              <div
+                key={meal.key}
+                className={`rounded-xl p-4 text-center border transition-all ${open
+                  ? 'bg-red-50 border-red-200 shadow-sm'
+                  : 'bg-gray-50 border-gray-100'
+                  }`}
+              >
+                <div className="text-2xl mb-2">{meal.icon}</div>
+                <p className="font-semibold text-gray-900 text-sm">{meal.label}</p>
+                <p className="text-xs text-gray-500 mt-1 flex items-center justify-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {meal.time}
+                </p>
+                {meal.menu && (
+                  <p className="text-xs text-red-600 mt-2 font-medium truncate">{meal.menu}</p>
+                )}
+                {subscription && (
+                  <button
+                    onClick={() => open ? handleShowQr(meal.label, meal.key) : undefined}
+                    disabled={!open || generatingQr === meal.key}
+                    title={open ? 'Tap to generate QR' : `Opens at ${meal.time.split('–')[0].trim()}`}
+                    className={`mt-3 w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-semibold transition-all ${open
+                      ? 'bg-red-600 text-white hover:bg-red-700 cursor-pointer'
+                      : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                      }`}
+                  >
+                    {generatingQr === meal.key ? (
+                      <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : (
+                      <QrCode className="w-3.5 h-3.5" />
+                    )}
+                    {generatingQr === meal.key ? 'Generating...' : open ? 'Show QR' : 'Not Yet Open'}
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -250,6 +305,7 @@ export default function StudentDashboard() {
         <QRModal
           title={qrModal.type}
           dataUrl={qrModal.dataUrl}
+          studentCode={qrModal.fallbackCode}
           onClose={() => setQrModal(null)}
         />
       )}

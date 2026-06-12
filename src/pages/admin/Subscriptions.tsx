@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, RefreshCw, X, Save, Calendar } from 'lucide-react';
+import { Plus, Search, RefreshCw, X, Save, Calendar, Trash2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Subscription, Student, MealPlan } from '../../lib/types';
 import { toast } from 'sonner';
@@ -14,13 +14,15 @@ export default function AdminSubscriptions() {
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState({ student_id: '', plan_id: '', start_date: new Date().toISOString().split('T')[0] });
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { loadData(); }, []);
 
   async function loadData() {
     const [subRes, stuRes, planRes] = await Promise.all([
       supabase.from('subscriptions').select('*, student:students(full_name, room_number, student_code), plan:meal_plans(plan_name, duration_days, price)').order('created_at', { ascending: false }),
-      supabase.from('students').select('id, full_name, student_code, room_number').eq('role', 'student').order('full_name'),
+      supabase.from('students').select('*').eq('role', 'student').order('full_name'),
       supabase.from('meal_plans').select('*').eq('active', true),
     ]);
     setSubscriptions(subRes.data ?? []);
@@ -90,6 +92,19 @@ export default function AdminSubscriptions() {
   function isSubActive(sub: Subscription) {
     const today = new Date().toISOString().split('T')[0];
     return sub.status === 'active' && sub.end_date >= today;
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    // Delete linked payments first to avoid FK constraint errors
+    await supabase.from('payments').delete().eq('subscription_id', deleteTarget.id);
+    const { error } = await supabase.from('subscriptions').delete().eq('id', deleteTarget.id);
+    if (error) { toast.error('Failed to delete subscription'); setDeleting(false); return; }
+    toast.success('Subscription deleted successfully');
+    setDeleting(false);
+    setDeleteTarget(null);
+    loadData();
   }
 
   return (
@@ -172,9 +187,14 @@ export default function AdminSubscriptions() {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <button onClick={() => toggleStatus(sub)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Toggle Status">
-                        <RefreshCw className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => toggleStatus(sub)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Toggle Status">
+                          <RefreshCw className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setDeleteTarget(sub)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete Subscription">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -234,6 +254,45 @@ export default function AdminSubscriptions() {
               <button onClick={handleCreate} disabled={saving} className="btn-primary flex-1 flex items-center justify-center gap-2">
                 {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Save className="w-4 h-4" />}
                 Create
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <h2 className="text-lg font-bold text-gray-900">Delete Subscription</h2>
+              </div>
+              <button onClick={() => setDeleteTarget(null)}><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-4 mb-5 space-y-1">
+              <p className="text-sm font-semibold text-gray-900">{(deleteTarget.student as any)?.full_name}</p>
+              <p className="text-xs text-gray-500">{(deleteTarget.plan as any)?.plan_name}</p>
+              <p className="text-xs text-gray-500">
+                {new Date(deleteTarget.start_date).toLocaleDateString('en-IN')} – {new Date(deleteTarget.end_date).toLocaleDateString('en-IN')}
+              </p>
+              <p className="text-xs font-semibold text-red-600">₹{deleteTarget.amount_paid.toLocaleString()}</p>
+            </div>
+            <p className="text-sm text-gray-600 mb-5">
+              This will permanently delete the subscription and its linked payment record. <span className="font-semibold text-red-600">This action cannot be undone.</span>
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteTarget(null)} className="btn-secondary flex-1">Cancel</button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex-1 flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-60 text-white text-sm font-semibold py-2.5 px-4 rounded-xl transition-colors"
+              >
+                {deleting ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Delete
               </button>
             </div>
           </div>

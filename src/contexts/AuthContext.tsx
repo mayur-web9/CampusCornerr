@@ -9,9 +9,9 @@ interface AuthContextValue {
   role: UserRole | null;
   profile: Student | Staff | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  signIn: (email: string, password: string) => Promise<{ error: Error | null; role: UserRole | null }>;
   signOut: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
+  refreshProfile: (userId?: string) => Promise<UserRole | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -23,40 +23,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Student | Staff | null>(null);
   const [loading, setLoading] = useState(true);
   const initRef = useRef(false);
+  const activeLoadRef = useRef<{ userId: string; promise: Promise<UserRole | null> } | null>(null);
 
-  async function loadProfile(userId: string) {
-    // Check students table first
-    const { data: student } = await supabase
-      .from('students')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (student) {
-      setRole(student.role as UserRole);
-      setProfile(student);
-      return;
+  async function loadProfile(userId: string): Promise<UserRole | null> {
+    if (activeLoadRef.current && activeLoadRef.current.userId === userId) {
+      return activeLoadRef.current.promise;
     }
 
-    // Check staff table
-    const { data: staffMember } = await supabase
-      .from('staff')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
+    const promise = (async () => {
+      setLoading(true);
+      try {
+        const [studentResult, staffResult] = await Promise.all([
+          supabase.from('students').select('*').eq('user_id', userId).maybeSingle(),
+          supabase.from('staff').select('*').eq('user_id', userId).maybeSingle()
+        ]);
 
-    if (staffMember) {
-      setRole('staff');
-      setProfile(staffMember);
-      return;
-    }
+        const student = studentResult.data;
+        const staffMember = staffResult.data;
 
-    setRole(null);
-    setProfile(null);
+        if (student) {
+          setRole(student.role as UserRole);
+          setProfile(student);
+          return student.role as UserRole;
+        }
+
+        if (staffMember) {
+          setRole('staff');
+          setProfile(staffMember);
+          return 'staff';
+        }
+
+        setRole(null);
+        setProfile(null);
+        return null;
+      } catch (err) {
+        console.error('Error loading profile:', err);
+        setRole(null);
+        setProfile(null);
+        return null;
+      } finally {
+        setLoading(false);
+        if (activeLoadRef.current?.userId === userId) {
+          activeLoadRef.current = null;
+        }
+      }
+    })();
+
+    activeLoadRef.current = { userId, promise };
+    return promise;
   }
 
-  async function refreshProfile() {
-    if (user) await loadProfile(user.id);
+  async function refreshProfile(userId?: string): Promise<UserRole | null> {
+    const id = userId || user?.id || (await supabase.auth.getUser()).data.user?.id;
+    if (id) {
+      return await loadProfile(id);
+    }
+    return null;
   }
 
   useEffect(() => {
@@ -81,15 +103,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setRole(null);
         setProfile(null);
+        setLoading(false);
       }
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error };
+  async function signIn(email: string, password: string): Promise<{ error: Error | null; role: UserRole | null }> {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { error, role: null };
+    
+    if (data.session) setSession(data.session);
+    if (data.user) setUser(data.user);
+
+    let userRole: UserRole | null = null;
+    if (data.user) {
+      userRole = await loadProfile(data.user.id);
+    }
+    
+    return { error: null, role: userRole };
   }
 
   async function signOut() {

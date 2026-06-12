@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Link, useNavigate, Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ChefHat, Mail, Lock, User, Phone, Hash, Home, BookOpen, CheckCircle2, XCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,14 +36,15 @@ export default function Register() {
   const [loading, setLoading] = useState(false);
   const [step, setStep] = useState<1 | 2>(1);
   const navigate = useNavigate();
-  const { user, role, loading: authLoading } = useAuth();
+  const { user, role, loading: authLoading, refreshProfile } = useAuth();
 
-  // Redirect already-logged-in users
-  if (!authLoading && user && role) {
-    if (role === 'admin') return <Navigate to="/admin/dashboard" replace />;
-    if (role === 'staff') return <Navigate to="/staff/scanner" replace />;
-    return <Navigate to="/student/dashboard" replace />;
-  }
+  useEffect(() => {
+    if (!authLoading && user && role) {
+      if (role === 'admin') navigate('/admin/dashboard', { replace: true });
+      else if (role === 'staff') navigate('/staff/scanner', { replace: true });
+      else navigate('/student/dashboard', { replace: true });
+    }
+  }, [authLoading, user, role, navigate]);
 
   function update(key: keyof FormData, value: string) {
     setForm(prev => ({ ...prev, [key]: value }));
@@ -124,16 +125,17 @@ export default function Register() {
       profile_completed: true,
     });
 
-    setLoading(false);
-
     if (stuErr) {
+      setLoading(false);
       // Clean up auth user if student insert fails
       toast.error('Failed to create student profile: ' + stuErr.message);
       return;
     }
 
+    await refreshProfile(userId);
+    
+    setLoading(false);
     toast.success('Registration successful! Welcome to HostelPro.');
-    navigate('/student/dashboard');
   }
 
   return (

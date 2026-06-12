@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
-import { CreditCard, Calendar, RefreshCw, CheckCircle2, Clock, IndianRupee } from 'lucide-react';
+import { CreditCard, RefreshCw, CheckCircle2, Clock, Lock, AlertCircle } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../contexts/AuthContext';
 import { Subscription, MealPlan } from '../../lib/types';
 import { toast } from 'sonner';
+
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
 
 export default function StudentSubscription() {
   const { profile } = useAuth();
@@ -28,51 +34,151 @@ export default function StudentSubscription() {
     setLoading(false);
   }
 
-  async function handleRenew() {
-    if (!selectedPlan) { toast.error('Please select a plan'); return; }
-    const plan = plans.find(p => p.id === selectedPlan);
-    if (!plan) return;
+  async function handleSubscribe() {
+  if (!selectedPlan) {
+    toast.error('Please select a plan');
+    return;
+  }
 
+  const plan = plans.find((p) => p.id === selectedPlan);
+
+  if (!plan) return;
+
+  if (isActive) {
+    toast.error(
+      'You already have an active subscription. Please wait until it expires.'
+    );
+    return;
+  }
+
+  try {
     setRenewing(true);
-    const current = subscriptions[0];
-    const startDate = current && new Date(current.end_date) > new Date()
-      ? new Date(current.end_date)
-      : new Date();
-    startDate.setDate(startDate.getDate() + 1);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + plan.duration_days - 1);
 
-    const { data: newSub, error } = await supabase.from('subscriptions').insert({
-      student_id: (profile as any).id,
-      plan_id: plan.id,
-      amount_paid: plan.price,
-      start_date: startDate.toISOString().split('T')[0],
-      end_date: endDate.toISOString().split('T')[0],
-      status: 'active',
-      payment_status: 'paid',
-      renewed_from: current?.id ?? null,
-    }).select().single();
+    // Create Razorpay Order from Supabase Edge Function
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-order`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: plan.price * 100,
+        }),
+      }
+    );
 
-    if (error) { toast.error('Failed to renew subscription'); setRenewing(false); return; }
+    const order = await response.json();
 
-    if (newSub) {
-      await supabase.from('payments').insert({
-        student_id: (profile as any).id,
-        subscription_id: newSub.id,
-        amount: plan.price,
-        payment_gateway: 'manual',
-        payment_status: 'paid',
-      });
+    if (!order.id) {
+      toast.error('Failed to create payment order');
+      setRenewing(false);
+      return;
     }
 
-    toast.success('Subscription renewed successfully!');
+    const options = {
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+
+      amount: order.amount,
+
+      currency: order.currency,
+
+      order_id: order.id,
+
+      name: 'Cafeteria',
+
+      description: plan.plan_name,
+
+      handler: async function (response: any) {
+        try {
+          const startDate = new Date();
+
+          const endDate = new Date(startDate);
+
+          endDate.setDate(
+            endDate.getDate() + plan.duration_days - 1
+          );
+
+          const { data: newSub, error } = await supabase
+            .from('subscriptions')
+            .insert({
+              student_id: (profile as any).id,
+              plan_id: plan.id,
+              amount_paid: plan.price,
+              start_date: startDate
+                .toISOString()
+                .split('T')[0],
+              end_date: endDate
+                .toISOString()
+                .split('T')[0],
+              status: 'active',
+              payment_status: 'paid',
+              renewed_from: current?.id ?? null,
+            })
+            .select()
+            .single();
+
+          if (error) {
+            console.error(error);
+            toast.error('Failed to create subscription');
+            return;
+          }
+
+          await supabase.from('payments').insert({
+            student_id: (profile as any).id,
+            subscription_id: newSub.id,
+            amount: plan.price,
+            transaction_id: response.razorpay_payment_id,
+            payment_gateway: 'razorpay',
+            payment_status: 'paid',
+          });
+
+          toast.success(
+            'Payment Successful! Subscription Activated.'
+          );
+
+          setRenewModal(false);
+          setSelectedPlan('');
+
+          loadData();
+        } catch (err) {
+          console.error(err);
+          toast.error('Something went wrong');
+        }
+      },
+
+      modal: {
+        ondismiss: () => {
+          toast.error('Payment cancelled');
+        },
+      },
+
+      theme: {
+        color: '#dc2626',
+      },
+    };
+
+console.log("ORDER DATA:", order);
+console.log("RAZORPAY OPTIONS:", options);
+
+const razorpay = new window.Razorpay(options);
+
+razorpay.open();
+  } catch (error) {
+    console.error(error);
+    toast.error('Failed to start payment');
+  } finally {
     setRenewing(false);
-    setRenewModal(false);
-    loadData();
   }
+}
 
   const current = subscriptions[0];
   const isActive = current && new Date(current.end_date) >= new Date() && current.status === 'active';
+
+  // Calculate days remaining for active subscription
+  const daysRemaining = isActive
+    ? Math.ceil((new Date(current.end_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
 
   if (loading) return (
     <div className="space-y-4 animate-pulse">
@@ -88,11 +194,29 @@ export default function StudentSubscription() {
           <h1 className="text-2xl font-bold text-gray-900">Subscription</h1>
           <p className="text-gray-500 text-sm mt-1">Manage your meal subscription</p>
         </div>
-        <button onClick={() => setRenewModal(true)} className="btn-primary flex items-center gap-2">
-          <RefreshCw className="w-4 h-4" />
-          {isActive ? 'Renew' : 'Subscribe'}
-        </button>
+        {/* Only show Subscribe button when there is NO active subscription */}
+        {!isActive && (
+          <button onClick={() => setRenewModal(true)} className="btn-primary flex items-center gap-2">
+            <RefreshCw className="w-4 h-4" />
+            {current ? 'Resubscribe' : 'Subscribe'}
+          </button>
+        )}
       </div>
+
+      {/* Active Subscription Lock Notice */}
+      {isActive && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <Lock className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-amber-800">One subscription at a time</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              You can subscribe to a new plan only after your current subscription expires on{' '}
+              <span className="font-semibold">{new Date(current.end_date).toLocaleDateString('en-IN')}</span>
+              {' '}({daysRemaining} day{daysRemaining !== 1 ? 's' : ''} remaining).
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Current Plan */}
       {current ? (
@@ -103,7 +227,7 @@ export default function StudentSubscription() {
               <h2 className="text-xl font-bold mt-1">{(current.plan as any)?.plan_name}</h2>
             </div>
             <span className={`px-3 py-1 rounded-full text-xs font-bold ${isActive ? 'bg-green-400/20 text-green-100' : 'bg-white/10 text-white/60'}`}>
-              {isActive ? 'Active' : 'Expired'}
+              {isActive ? `Active · ${daysRemaining}d left` : 'Expired'}
             </span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4 pt-4 border-t border-white/20">
@@ -124,6 +248,16 @@ export default function StudentSubscription() {
               <p className="text-sm font-medium mt-0.5 capitalize">{current.payment_status}</p>
             </div>
           </div>
+          {/* Expired — prompt to resubscribe */}
+          {!isActive && (
+            <button
+              onClick={() => setRenewModal(true)}
+              className="mt-4 w-full bg-white/10 hover:bg-white/20 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors flex items-center justify-center gap-2"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Subscribe Again
+            </button>
+          )}
         </div>
       ) : (
         <div className="card text-center py-10">
@@ -168,12 +302,12 @@ export default function StudentSubscription() {
         </div>
       )}
 
-      {/* Renew Modal */}
-      {renewModal && (
+      {/* Subscribe Modal — only shown when no active subscription */}
+      {renewModal && !isActive && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
-            <h2 className="text-lg font-bold text-gray-900 mb-1">{isActive ? 'Renew Subscription' : 'New Subscription'}</h2>
-            <p className="text-sm text-gray-500 mb-5">Select a meal plan</p>
+            <h2 className="text-lg font-bold text-gray-900 mb-1">New Subscription</h2>
+            <p className="text-sm text-gray-500 mb-5">Select a meal plan to activate</p>
             <div className="space-y-3 mb-5">
               {plans.map(plan => (
                 <label key={plan.id} className={`flex items-center gap-4 p-4 rounded-xl border-2 cursor-pointer transition-all ${selectedPlan === plan.id ? 'border-red-500 bg-red-50' : 'border-gray-100 hover:border-gray-200'}`}>
@@ -194,12 +328,34 @@ export default function StudentSubscription() {
               ))}
             </div>
             <div className="flex gap-3">
-              <button onClick={() => setRenewModal(false)} className="btn-secondary flex-1">Cancel</button>
-              <button onClick={handleRenew} disabled={renewing || !selectedPlan} className="btn-primary flex-1 flex items-center justify-center gap-2">
+              <button onClick={() => { setRenewModal(false); setSelectedPlan(''); }} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={handleSubscribe} disabled={renewing || !selectedPlan} className="btn-primary flex-1 flex items-center justify-center gap-2">
                 {renewing ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : null}
                 Confirm
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Guard: if somehow modal is opened while active, block it */}
+      {renewModal && isActive && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-2xl text-center">
+            <div className="w-14 h-14 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-7 h-7 text-amber-600" />
+            </div>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Subscription Already Active</h2>
+            <p className="text-sm text-gray-500 mb-1">
+              Your current plan is active until
+            </p>
+            <p className="text-base font-semibold text-gray-800 mb-4">
+              {new Date(current.end_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
+            <p className="text-xs text-gray-400 mb-5">
+              You can subscribe to a new plan once your current subscription expires.
+            </p>
+            <button onClick={() => setRenewModal(false)} className="btn-primary w-full">Got it</button>
           </div>
         </div>
       )}

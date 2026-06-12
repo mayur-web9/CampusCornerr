@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Eye, EyeOff, ChefHat, Mail, Lock } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,10 +30,15 @@ export default function Login() {
     toast.success('Welcome back!');
   }
 
-  // Redirect after role is loaded
-  if (role === 'admin') { navigate('/admin/dashboard', { replace: true }); return null; }
-  if (role === 'staff') { navigate('/staff/scanner', { replace: true }); return null; }
-  if (role === 'student') { navigate('/student/dashboard', { replace: true }); return null; }
+  useEffect(() => {
+    if (role === 'admin') {
+      navigate('/admin/dashboard', { replace: true });
+    } else if (role === 'staff') {
+      navigate('/staff/scanner', { replace: true });
+    } else if (role === 'student') {
+      navigate('/student/dashboard', { replace: true });
+    }
+  }, [role, navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-orange-50 flex items-center justify-center p-4">

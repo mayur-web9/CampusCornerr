@@ -203,7 +203,7 @@ ON CONFLICT (meal_date) DO NOTHING;
 INSERT INTO announcements (title, description, active)
 VALUES 
   ('Welcome to HostelPro', 'The new mess management system is now live. Use your credentials to log in and manage your meal subscriptions.', true),
-  ('Mess Timing Update', 'Breakfast: 8-10 AM | Lunch: 1-3 PM | Dinner: 8-10 PM. Please ensure you scan your QR within the time slot.', true)
+  ('Mess Timing Update', 'Breakfast: 8 AM-10 PM | Lunch: 1-3 PM | Dinner: 8-10 PM. Please ensure you scan your QR within the time slot.', true)
 ON CONFLICT DO NOTHING;
 
 -- Insert demo payments

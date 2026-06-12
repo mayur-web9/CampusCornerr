@@ -41,6 +41,11 @@ export default function AdminStudents() {
     if (modal === 'add') {
       // Create auth user first
       const { data: authData, error: authErr } = await supabase.auth.admin.createUser({ email: form.email, password: form.student_code, email_confirm: true });
+      if (authErr) {
+        toast.error(`Auth creation failed: ${authErr.message}`);
+        setSaving(false);
+        return;
+      }
       const userId = authData?.user?.id;
 
       const qrData = JSON.stringify({ studentId: crypto.randomUUID(), mealType: 'all' });

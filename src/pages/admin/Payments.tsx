@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Search, IndianRupee, TrendingUp, CheckCircle, Clock } from 'lucide-react';
+import { Search, IndianRupee, CheckCircle, Clock } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Payment } from '../../lib/types';
 
