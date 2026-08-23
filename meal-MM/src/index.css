@@ -1,0 +1,128 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    @apply font-sans antialiased bg-slate-50 text-slate-900;
+  }
+
+  .dark body {
+    @apply bg-gray-950 text-gray-50;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-400;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-4 ring-red-100 ring-offset-0;
+  }
+}
+
+@layer components {
+  /* Buttons */
+
+  .btn-primary {
+    @apply bg-red-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm shadow-sm shadow-red-600/20 hover:bg-red-700 hover:shadow-md hover:shadow-red-600/25 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-secondary {
+    @apply bg-white text-slate-700 border border-gray-200 px-5 py-2.5 rounded-xl font-semibold text-sm hover:bg-gray-50 hover:border-gray-300 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-outline {
+    @apply border border-red-600 text-red-600 px-5 py-2.5 rounded-xl font-semibold text-sm hover:bg-red-50 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white px-5 py-2.5 rounded-xl font-semibold text-sm shadow-sm shadow-red-600/20 hover:bg-red-700 hover:shadow-md hover:shadow-red-600/25 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-warning {
+    @apply bg-orange-500 text-white px-5 py-2.5 rounded-xl font-semibold text-sm shadow-sm shadow-orange-500/20 hover:bg-orange-600 active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100;
+  }
+
+  .btn-icon {
+    @apply p-2 rounded-xl text-gray-400 hover:bg-gray-100 hover:text-slate-700 active:scale-95 transition-all duration-200;
+  }
+
+  /* Cards */
+
+  .card {
+    @apply bg-white rounded-2xl shadow-sm shadow-slate-200/60 border border-gray-100 p-6 transition-all duration-200;
+  }
+
+  .card-hover {
+    @apply hover:shadow-lg hover:shadow-slate-200/70 hover:-translate-y-0.5;
+  }
+
+  /* Inputs */
+
+  .input-field {
+    @apply w-full px-4 py-2.5 border border-gray-200 rounded-xl text-slate-900 placeholder-gray-400 bg-white focus:outline-none focus:ring-4 focus:ring-red-100 focus:border-red-400 transition-all duration-200;
+  }
+
+  /* Badges */
+
+  .badge-active {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-50 text-green-700 ring-1 ring-inset ring-green-200;
+  }
+
+  .badge-expired {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-red-50 text-red-700 ring-1 ring-inset ring-red-200;
+  }
+
+  .badge-pending {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-orange-50 text-orange-700 ring-1 ring-inset ring-orange-200;
+  }
+
+  .badge-neutral {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600 ring-1 ring-inset ring-gray-200;
+  }
+
+  .badge-info {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200;
+  }
+
+  /* Sidebar */
+
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl text-slate-500 hover:bg-gray-50 hover:text-slate-900 transition-all duration-200 font-medium text-sm;
+  }
+
+  .sidebar-link-active {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-xl bg-red-600 text-white font-semibold text-sm shadow-sm shadow-red-600/25;
+  }
+
+  /* Avatars */
+
+  .avatar-gradient {
+    @apply bg-gradient-to-br from-red-500 to-red-600 shadow-lg shadow-red-200;
+  }
+
+  /* Misc */
+
+  .skeleton {
+    @apply animate-pulse bg-gray-200 rounded-lg;
+  }
+}
