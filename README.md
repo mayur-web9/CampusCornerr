@@ -1,6 +1,9 @@
 <div align="center">
   <h1>🍔 Campuscorner: Meal Management System</h1>
   <p>A comprehensive, modern solution for managing university and campus dining services.</p>
+  <p>
+    <a href="https://campuscornerr.com"><strong>🌐 View Live Application</strong></a>
+  </p>
 </div>
 
 ---
